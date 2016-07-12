@@ -86,7 +86,7 @@ func (mw *JWTMiddleware) middlewareImpl(writer rest.ResponseWriter, request *res
 	token, err := mw.parseToken(request)
 
 	if err != nil {
-		mw.unauthorized(writer)
+		mw.unauthorized(writer, "Error parsing token")
 		return
 	}
 
@@ -96,7 +96,7 @@ func (mw *JWTMiddleware) middlewareImpl(writer rest.ResponseWriter, request *res
 	request.Env["JWT_PAYLOAD"] = token.Claims
 
 	if !mw.Authorizator(id, request) {
-		mw.unauthorized(writer)
+		mw.unauthorized(writer, "Permission denied")
 		return
 	}
 
@@ -130,12 +130,12 @@ func (mw *JWTMiddleware) LoginHandler(writer rest.ResponseWriter, request *rest.
 	err := request.DecodeJsonPayload(&loginVals)
 
 	if err != nil {
-		mw.unauthorized(writer)
+		mw.unauthorized(writer, "Error Reading Login Values")
 		return
 	}
 
 	if !mw.Authenticator(loginVals.Username, loginVals.Password) {
-		mw.unauthorized(writer)
+		mw.unauthorized(writer, "Not Authenticated")
 		return
 	}
 
@@ -155,7 +155,7 @@ func (mw *JWTMiddleware) LoginHandler(writer rest.ResponseWriter, request *rest.
 	tokenString, err := token.SignedString(mw.Key)
 
 	if err != nil {
-		mw.unauthorized(writer)
+		mw.unauthorized(writer, "Error creating token")
 		return
 	}
 
@@ -190,14 +190,14 @@ func (mw *JWTMiddleware) RefreshHandler(writer rest.ResponseWriter, request *res
 
 	// Token should be valid anyway as the RefreshHandler is authed
 	if err != nil {
-		mw.unauthorized(writer)
+		mw.unauthorized(writer, "Error parsing token")
 		return
 	}
 
 	origIat := int64(token.Claims["orig_iat"].(float64))
 
 	if origIat < time.Now().Add(-mw.MaxRefresh).Unix() {
-		mw.unauthorized(writer)
+		mw.unauthorized(writer, "Error Creating Token")
 		return
 	}
 
@@ -213,14 +213,14 @@ func (mw *JWTMiddleware) RefreshHandler(writer rest.ResponseWriter, request *res
 	tokenString, err := newToken.SignedString(mw.Key)
 
 	if err != nil {
-		mw.unauthorized(writer)
+		mw.unauthorized(writer, "Error Creating Token")
 		return
 	}
 
 	writer.WriteJson(resultToken{Token: tokenString})
 }
 
-func (mw *JWTMiddleware) unauthorized(writer rest.ResponseWriter) {
+func (mw *JWTMiddleware) unauthorized(writer rest.ResponseWriter, status string) {
 	writer.Header().Set("WWW-Authenticate", "JWT realm="+mw.Realm)
-	rest.Error(writer, "Not Authorized", http.StatusUnauthorized)
+	rest.Error(writer, status, http.StatusUnauthorized)
 }
