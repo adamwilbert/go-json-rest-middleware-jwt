@@ -3,7 +3,6 @@ package jwt
 
 import (
 	"github.com/ant0ine/go-json-rest/rest"
-	"github.com/dgrijalva/jwt-go"
 
 	"errors"
 	"log"
@@ -118,7 +117,7 @@ type resultToken struct {
 }
 
 type login struct {
-	Username string `json:"username"`
+	Username string `json:"email"`
 	Password string `json:"password"`
 }
 
