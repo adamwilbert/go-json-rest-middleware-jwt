@@ -14,7 +14,7 @@ import (
 
 // JWTMiddleware provides a Json-Web-Token authentication implementation. On failure, a 401 HTTP response
 // is returned. On success, the wrapped middleware is called, and the userId is made available as
-// request.Env["REMOTE_USER"].(string).
+// r.Env["REMOTE_USER"].(string).
 // Users can get a token by posting a json request to LoginHandler. The token then needs to be passed in
 // the Authentication header. Example: Authorization:Bearer XXX_TOKEN_XXX
 type JWTMiddleware struct {
@@ -44,7 +44,7 @@ type JWTMiddleware struct {
 	// Callback function that should perform the authorization of the authenticated user. Called
 	// only after an authentication success. Must return true on success, false on failure.
 	// Optional, default to success.
-	Authorizator func(userId string, request *rest.Request) bool
+	Authorizator func(userId string, r *rest.Request) bool
 
 	// Callback function that will be called during login.
 	// Using this function it is possible to add additional payload data to the webtoken.
@@ -74,42 +74,42 @@ func (mw *JWTMiddleware) MiddlewareFunc(handler rest.HandlerFunc) rest.HandlerFu
 		log.Fatal("Authenticator is required")
 	}
 	if mw.Authorizator == nil {
-		mw.Authorizator = func(userId string, request *rest.Request) bool {
+		mw.Authorizator = func(userId string, r *rest.Request) bool {
 			return true
 		}
 	}
 
-	return func(writer rest.ResponseWriter, request *rest.Request) { mw.middlewareImpl(writer, request, handler) }
+	return func(w rest.ResponseWriter, r *rest.Request) { mw.middlewareImpl(w, r, handler) }
 }
 
-func (mw *JWTMiddleware) middlewareImpl(writer rest.ResponseWriter, request *rest.Request, handler rest.HandlerFunc) {
-	token, err := mw.parseToken(request)
+func (mw *JWTMiddleware) middlewareImpl(w rest.ResponseWriter, r *rest.Request, handler rest.HandlerFunc) {
+	token, err := mw.parseToken(r)
 
 	if err != nil {
-		mw.unauthorized(writer, "Error parsing token")
+		mw.unauthorized(w, err.Error())
 		return
 	}
 
 	id := token.Claims["id"].(string)
 
-	request.Env["REMOTE_USER"] = id
-	request.Env["JWT_PAYLOAD"] = token.Claims
+	r.Env["REMOTE_USER"] = id
+	r.Env["JWT_PAYLOAD"] = token.Claims
 
-	if !mw.Authorizator(id, request) {
-		mw.unauthorized(writer, "Permission denied")
+	if !mw.Authorizator(id, r) {
+		mw.unauthorized(w, "Permission Denied")
 		return
 	}
 
-	handler(writer, request)
+	handler(w, r)
 }
 
 // ExtractClaims allows to retrieve the payload
-func ExtractClaims(request *rest.Request) map[string]interface{} {
-	if request.Env["JWT_PAYLOAD"] == nil {
+func ExtractClaims(r *rest.Request) map[string]interface{} {
+	if r.Env["JWT_PAYLOAD"] == nil {
 		emptyClaims := make(map[string]interface{})
 		return emptyClaims
 	}
-	jwtClaims := request.Env["JWT_PAYLOAD"].(map[string]interface{})
+	jwtClaims := r.Env["JWT_PAYLOAD"].(map[string]interface{})
 	return jwtClaims
 }
 
@@ -125,17 +125,17 @@ type login struct {
 // LoginHandler can be used by clients to get a jwt token.
 // Payload needs to be json in the form of {"username": "USERNAME", "password": "PASSWORD"}.
 // Reply will be of the form {"token": "TOKEN"}.
-func (mw *JWTMiddleware) LoginHandler(writer rest.ResponseWriter, request *rest.Request) {
+func (mw *JWTMiddleware) LoginHandler(w rest.ResponseWriter, r *rest.Request) {
 	loginVals := login{}
-	err := request.DecodeJsonPayload(&loginVals)
+	err := r.DecodeJsonPayload(&loginVals)
 
 	if err != nil {
-		mw.unauthorized(writer, "Error Reading Login Values")
+		mw.unauthorized(w, "Error Reading Login Values")
 		return
 	}
 
 	if !mw.Authenticator(loginVals.Username, loginVals.Password) {
-		mw.unauthorized(writer, "Not Authenticated")
+		mw.unauthorized(w, "Not Authenticated")
 		return
 	}
 
@@ -155,15 +155,15 @@ func (mw *JWTMiddleware) LoginHandler(writer rest.ResponseWriter, request *rest.
 	tokenString, err := token.SignedString(mw.Key)
 
 	if err != nil {
-		mw.unauthorized(writer, "Error creating token")
+		mw.unauthorized(w, "Error creating token")
 		return
 	}
 
-	writer.WriteJson(resultToken{Token: tokenString})
+	w.WriteJson(resultToken{Token: tokenString})
 }
 
-func (mw *JWTMiddleware) parseToken(request *rest.Request) (*jwt.Token, error) {
-	authHeader := request.Header.Get("Authorization")
+func (mw *JWTMiddleware) parseToken(r *rest.Request) (*jwt.Token, error) {
+	authHeader := r.Header.Get("Authorization")
 
 	if authHeader == "" {
 		return nil, errors.New("Auth header empty")
@@ -185,19 +185,19 @@ func (mw *JWTMiddleware) parseToken(request *rest.Request) (*jwt.Token, error) {
 // RefreshHandler can be used to refresh a token. The token still needs to be valid on refresh.
 // Shall be put under an endpoint that is using the JWTMiddleware.
 // Reply will be of the form {"token": "TOKEN"}.
-func (mw *JWTMiddleware) RefreshHandler(writer rest.ResponseWriter, request *rest.Request) {
-	token, err := mw.parseToken(request)
+func (mw *JWTMiddleware) RefreshHandler(w rest.ResponseWriter, r *rest.Request) {
+	token, err := mw.parseToken(r)
 
 	// Token should be valid anyway as the RefreshHandler is authed
 	if err != nil {
-		mw.unauthorized(writer, "Error parsing token")
+		mw.unauthorized(w, err.Error())
 		return
 	}
 
 	origIat := int64(token.Claims["orig_iat"].(float64))
 
 	if origIat < time.Now().Add(-mw.MaxRefresh).Unix() {
-		mw.unauthorized(writer, "Error Creating Token")
+		mw.unauthorized(w, "Error Creating Token")
 		return
 	}
 
@@ -213,14 +213,14 @@ func (mw *JWTMiddleware) RefreshHandler(writer rest.ResponseWriter, request *res
 	tokenString, err := newToken.SignedString(mw.Key)
 
 	if err != nil {
-		mw.unauthorized(writer, "Error Creating Token")
+		mw.unauthorized(w, "Error Creating Token")
 		return
 	}
 
-	writer.WriteJson(resultToken{Token: tokenString})
+	w.WriteJson(resultToken{Token: tokenString})
 }
 
-func (mw *JWTMiddleware) unauthorized(writer rest.ResponseWriter, status string) {
-	writer.Header().Set("WWW-Authenticate", "JWT realm="+mw.Realm)
-	rest.Error(writer, status, http.StatusUnauthorized)
+func (mw *JWTMiddleware) unauthorized(w rest.ResponseWriter, status string) {
+	w.Header().Set("WWW-Authenticate", "JWT realm="+mw.Realm)
+	rest.Error(w, status, http.StatusUnauthorized)
 }
