@@ -2,13 +2,14 @@
 package jwt
 
 import (
-	"github.com/ant0ine/go-json-rest/rest"
-
 	"errors"
 	"log"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/ant0ine/go-json-rest/rest"
+	"github.com/dgrijalva/jwt-go"
 )
 
 // JWTMiddleware provides a Json-Web-Token authentication implementation. On failure, a 401 HTTP response
