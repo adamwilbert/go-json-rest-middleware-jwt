@@ -158,8 +158,12 @@ func (mw *JWTMiddleware) LoginHandler(w rest.ResponseWriter, r *rest.Request) {
 		mw.unauthorized(w, "Error creating token")
 		return
 	}
+	type responseStruct struct {
+		Token string `json:"token"`
+		ID    interface{}
+	}
 
-	w.WriteJson(resultToken{Token: tokenString})
+	w.WriteJson(responseStruct{Token: tokenString, ID: token.Claims["userid"]})
 }
 
 func (mw *JWTMiddleware) parseToken(r *rest.Request) (*jwt.Token, error) {
